@@ -3,27 +3,23 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 
-import matplotlib.pyplot as plt
-import networkx as nx
-
-def print_info(self):
-    # Información básica de la simulación
-    text = f"\nParameters: Transactions = {self.no_of_transactions}, Tip-Selection = {self.tip_selection_algo.upper()}, Lambda = {self.lam}"
-    if self.no_of_agents != 1:
-        text += f", Distances = {self.distances}"
-    if self.tip_selection_algo == "weighted":
-        text += f", Alpha = {self.alpha}"
-    text += " | Simulation started...\n"
-    print(text)
-
-
 
 #############################################################################
 # PRINTING AND PLOTTING
 #############################################################################
 
+def print_info(self):
+    text = "\nParameters:  Transactions = " + str(self.no_of_transactions) + \
+            ",  Tip-Selection = " + str(self.tip_selection_algo).upper() + \
+            ",  Lambda = " + str(self.lam)
+    if(self.no_of_agents != 1):
+        text += ",  Distances = " + str(self.distances)
+    if(self.tip_selection_algo == "weighted"):
+        text += ",  Alpha = " + str(self.alpha)
+    text += " | Simulation started...\n"
+    print(text)
 
-def print_graph(self ,save_path=None):
+def print_graph(self):
 
     #Positioning and text of labels
     pos = nx.get_node_attributes(self.DG, 'pos')
@@ -68,11 +64,11 @@ def print_graph(self ,save_path=None):
     plt.xlabel("Time (s)")
     plt.yticks([])
     plt.title(title)
-    #plt.show()
+    plt.show()
     #Save the graph
-    plt.savefig(save_path)
+    plt.savefig('graph.png')
 
-def print_tips_over_time(self,save_path=None):
+def print_tips_over_time(self):
 
     plt.figure(figsize=(14, 7))
 
@@ -108,10 +104,9 @@ def print_tips_over_time(self,save_path=None):
     plt.ylabel("Number of tips")
     plt.legend(loc='upper left')
     plt.title(title)
-    #plt.show()
-    plt.savefig(save_path)
+    plt.show()
 
-def print_tips_over_time_multiple_agents_with_tangle(self, no_current_transactions ,save_path=None):
+def print_tips_over_time_multiple_agents_with_tangle(self, no_current_transactions):
 
     plt.figure(figsize=(14, 7))
     plt.subplot(2, 1, 1)
@@ -189,12 +184,10 @@ def print_tips_over_time_multiple_agents_with_tangle(self, no_current_transactio
 
     plt.xlabel("Time (s)")
     plt.yticks([])
-    #plt.show()
-    plt.savefig(save_path)
+    plt.show()
 
 
-
-def print_tips_over_time_multiple_agents(self, no_current_transactions ,save_path=None):
+def print_tips_over_time_multiple_agents(self, no_current_transactions):
 
     plt.figure(figsize=(14, 7))
 
@@ -235,11 +228,10 @@ def print_tips_over_time_multiple_agents(self, no_current_transactions ,save_pat
     plt.ylabel("Number of tips")
     plt.legend(loc='upper left')
     plt.title(title)
-        #plt.show()
-    plt.savefig(save_path)
+    plt.show()
 
 
-def print_attachment_probabilities_alone(self ,save_path=None):
+def print_attachment_probabilities_alone(self):
 
     title = "Transactions = " + str(self.no_of_transactions) + \
             ",  " + r'$\lambda$' + " = " + str(self.lam) + \
@@ -276,11 +268,9 @@ def print_attachment_probabilities_alone(self ,save_path=None):
     plt.tight_layout()
     # plt.show()
     # plt.savefig('graph' +  str(title) + '_3' + '.png')
-        #plt.show()
-    plt.savefig(save_path)
 
 
-def print_attachment_probabilities_all_agents(self ,save_path=None):
+def print_attachment_probabilities_all_agents(self):
 #COMENTAR PARA CUANDO QUIERO UN SOLO AGENTE
     title = "Transactions = " + str(self.no_of_transactions) + \
             ",  " + r'$\lambda$' + " = " + str(self.lam)+ \
@@ -321,6 +311,5 @@ def print_attachment_probabilities_all_agents(self ,save_path=None):
     plt.suptitle(title)
     plt.tight_layout()
     plt.subplots_adjust(top=0.94)
-        #plt.show()
-    plt.savefig(save_path)
+    plt.show()
     # plt.savefig(str(no) + '.png')
