@@ -15,7 +15,6 @@ print_tips_over_time_multiple_agents, print_tips_over_time_multiple_agents_with_
 print_attachment_probabilities_alone,print_attachment_probabilities_all_agents
 from simulation.agent import Agent
 from simulation.transaction import Transaction
-import csv  # Asegúrate de que está importado en la parte superior de tu script
 
 
 class Multi_Agent_Simulation:
@@ -180,7 +179,6 @@ class Multi_Agent_Simulation:
 
 
     def tip_selection(self, transaction):
-        tip_selection_start_time = timeit.default_timer()  # Inicia el contador de tiempo para seleccionar puntas
 
         if(self.tip_selection_algo == "random"):
             self.random_selection(transaction)
@@ -189,27 +187,8 @@ class Multi_Agent_Simulation:
         elif(self.tip_selection_algo == "weighted"):
             self.weighted_MCMC(transaction)
         else:
-            print("ERROR: Valid tip selection algorithms are 'random', 'weighted', 'unweighted'")
+            print("ERROR:  Valid tip selection algorithms are 'random', 'weighted', 'unweighted'")
             sys.exit()
-
-        tip_selection_end_time = timeit.default_timer()  # Finaliza el contador de tiempo para seleccionar puntas
-        selection_duration = tip_selection_end_time - tip_selection_start_time
-        print(f"Tiempo para seleccionar puntas en la transacción {transaction.id}: {selection_duration} segundos")
-
-        # Guardar en CSV
-        with open('tip_selection_times.csv', mode='a', newline='') as file:
-            writer = csv.writer(file)
-            # Agregar más detalles a la fila
-            writer.writerow([
-                transaction.id,
-                transaction.arrival_time,
-                selection_duration,
-                transaction.agent.id if transaction.agent else 'N/A',  # Añadir ID del agente si está disponible
-                list(self.DG.predecessors(transaction)),  # Transacciones que esta transacción confirma
-                list(self.DG.successors(transaction))  # Transacciones que confirman esta transacción
-            ])
-
-
 
 
     def check_parameters_changes(self, transaction, parameters):
