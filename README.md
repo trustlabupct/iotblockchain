@@ -1,7 +1,7 @@
 # Blockchain Simulators
 
 ## General Description
-This guide covers two blockchain simulators, **BlockSim** and **DAGSim**, used to simulate different scenarios with blockchain and DAG (Directed Acyclic Graph) technologies. These tools have been modified by Antonio Villafranca Albaladejo to adjust both simulators for our research.
+This guide covers two blockchain simulators, **BlockSim** and **DAGSim**, used to simulate different scenarios with blockchain and DAG (Directed Acyclic Graph) technologies. This activity is part of the project R&D&I Laboratory on Cybersecurity, Privacy, and Secure Communications (TRUST Lab) financed by European Union NextGeneration-EU, the Recovery Plan, Transformation and Resilience,through INCIBE.
 
 ## BlockSim Simulator
 
@@ -74,4 +74,4 @@ or using any Python editor such as VS Code.
 DAGSim provides detailed results on the performance of the DAG network, including the number of confirmed transactions, the confirmation time, and the overall network efficiency.
 
 ## Authors and Modifications
-Both simulators were developed by their respective original authors. The modifications were made by Antonio Villafranca Albaladejo to adjust the simulators to the specific requirements of our research.
+Both simulators were developed by their respective original authors. This activity is part of the project R&D&I Laboratory on Cybersecurity, Privacy, and Secure Communications (TRUST Lab) financed by European Union NextGeneration-EU, the Recovery Plan, Transformation and Resilience,through INCIBE.
