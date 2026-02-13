@@ -6,10 +6,10 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 
-from simulation.helpers import update_progress, common_elements
-from simulation.plotting import print_info
-from simulation.agent import Agent
-from simulation.transaction import Transaction
+from helpers import update_progress, common_elements
+from plotting import print_info
+from agent import Agent
+from transaction import Transaction
 
 
 class Single_Agent_Simulation:

@@ -73,7 +73,6 @@ def clamp(val, minimum=0, maximum=255):
         return maximum
     return val
 
-
 def load_file(filename):
 
     try:
@@ -82,74 +81,107 @@ def load_file(filename):
         data = []
         simulation_config_parameters = config['PARAMETERS']
 
-        #Check if all simulation parameters provided
-        if not all(key in simulation_config_parameters.keys() for key in ['no_of_transactions','lambda','no_of_agents',\
-                                                                      'alpha','latency','distance','tip_selection_algo',\
-                                                                      'agent_choice','printing']):
-
-            print("Parameter error! Please provide 'no_of_transactions','lambda','no_of_agents','alpha','latency',"
-            "'distance','tip_selection_algo','agent_choice','printing'!")
+        # Check if all simulation parameters provided
+        required = ['no_of_transactions','lambda','no_of_agents',
+                    'alpha','latency','distance','tip_selection_algo',
+                    'agent_choice','printing']
+        if not all(key in simulation_config_parameters.keys() for key in required):
+            print("Parameter error! Please provide " + ", ".join(required) + "!")
             sys.exit(1)
 
-        #Load simulation parameters
+        # Load simulation parameters
         _no_of_transactions = int(simulation_config_parameters['no_of_transactions'])
-        _lambda = float(simulation_config_parameters['lambda'])
-        _no_of_agents = int(simulation_config_parameters['no_of_agents'])
-        _alpha = float(simulation_config_parameters['alpha'])
-        _latency = int(simulation_config_parameters['latency'])
+        _lambda             = float(simulation_config_parameters['lambda'])
+        _no_of_agents       = int(simulation_config_parameters['no_of_agents'])
+        _alpha              = float(simulation_config_parameters['alpha'])
+        _latency            = int(simulation_config_parameters['latency'])
 
-        if (type(ast.literal_eval(simulation_config_parameters['distance'])) is list):
+        # distance: lista o valor único
+        if isinstance(ast.literal_eval(simulation_config_parameters['distance']), list):
             _distance = ast.literal_eval(simulation_config_parameters['distance'])
         else:
-            _distance = create_distance_matrix(_no_of_agents,float(simulation_config_parameters['distance']))
+            _distance = create_distance_matrix(
+                _no_of_agents,
+                float(simulation_config_parameters['distance'])
+            )
 
         _tip_selection_algo = simulation_config_parameters['tip_selection_algo']
 
-        if (simulation_config_parameters['agent_choice'] == 'None'):
+        # agent_choice: None o lista
+        if simulation_config_parameters['agent_choice'] == 'None':
             _agent_choice = list(np.ones(_no_of_agents) / _no_of_agents)
         else:
             _agent_choice = ast.literal_eval(simulation_config_parameters['agent_choice'])
 
         _printing = config.getboolean('PARAMETERS','printing')
 
-        data.append((_no_of_transactions, _lambda, _no_of_agents, \
-        _alpha, _latency, _distance, _tip_selection_algo, _agent_choice, _printing))
+        data.append((
+            _no_of_transactions,
+            _lambda,
+            _no_of_agents,
+            _alpha,
+            _latency,
+            _distance,
+            _tip_selection_algo,
+            _agent_choice,
+            _printing
+        ))
 
-        #Load change parameters
-        for key in config:
-            if(key != 'PARAMETERS' and key != 'DEFAULT'):
+        # Load change parameters (paso a paso)
+        for section in config.sections():
+             # ignoramos la sección base y la de comportamiento
+            if section in ('PARAMETERS', 'BEHAVIOR'): 
+                continue
 
-                event_change_parameters = config[key]
+            event = config[section]
+            if 'step' not in event:
+                print("Please provide a 'step' for the parameter change!")
+                sys.exit(1)
+            step = int(event['step'])
 
-                if 'step' not in event_change_parameters:
-                    print("Please provide a 'step' for the parameter change!")
+            # distancia
+            if 'distance' not in event:
+                d = False
+            elif isinstance(ast.literal_eval(event['distance']), list):
+                d = ast.literal_eval(event['distance'])
+            else:
+                d = create_distance_matrix(_no_of_agents, float(event['distance']))
+
+            # agent_choice
+            if 'agent_choice' not in event:
+                ac = False
+            elif event['agent_choice'] == 'None':
+                ac = list(np.ones(_no_of_agents) / _no_of_agents)
+            else:
+                ac = ast.literal_eval(event['agent_choice'])
+                if round(sum(ac), 3) != 1.0:
+                    print(f"Agent choice not summing to 1.0: {sum(ac)}")
                     sys.exit(1)
-                step = int(event_change_parameters['step'])
+                if len(ac) != _no_of_agents:
+                    print(f"Agent choice length mismatch: {len(ac)} vs {_no_of_agents}")
+                    sys.exit(1)
 
-                if 'distance' not in event_change_parameters:
-                    _distance = False
-                elif (type(ast.literal_eval(event_change_parameters['distance'])) is list):
-                    _distance = ast.literal_eval(event_change_parameters['distance'])
+            data.append((step, d, ac))
+
+        # --- NUEVA PARTE: parsear sección BEHAVIOR ---
+        beh = {}
+        if config.has_section('BEHAVIOR'):
+            for k, v in config.items('BEHAVIOR'):
+                # lista
+                if v.startswith('[') and v.endswith(']'):
+                    beh[k] = eval(v)
+                # número (entero o float)
+                elif v.replace('.','',1).isdigit():
+                    beh[k] = float(v) if '.' in v else int(v)
+                # texto
                 else:
-                    _distance = create_distance_matrix(_no_of_agents,float(event_change_parameters['distance']))
-
-                if 'agent_choice' not in event_change_parameters:
-                    _agent_choice = False
-                elif (event_change_parameters['agent_choice'] == 'None'):
-                    _agent_choice = list(np.ones(_no_of_agents) / _no_of_agents)
-                else:
-                    _agent_choice = ast.literal_eval(event_change_parameters['agent_choice'])
-                    if (round(sum(_agent_choice), 3) != 1.0):
-                        print("Agent choice not summing to 1.0: {}".format(sum(_agent_choice)))
-                        sys.exit(1)
-                    if (len(_agent_choice) != _no_of_agents):
-                        print("Agent choice not matching no_of_agents: {}".format(len(_agent_choice)))
-                        sys.exit(1)
-
-                data.append((step, _distance, _agent_choice))
+                    beh[k] = v
+        # devolvemos también beh en el mismo objeto .config
+        data.append(('__BEHAVIOR__', beh))
 
     except Exception as e:
         print(e)
+        sys.exit(1)
 
     return data
 
@@ -169,6 +201,22 @@ def csv_export(self):
                 line.append(transaction.arrival_time)
                 line.append(transaction.agent)
                 writer.writerow(line)
+
+def parse_time(s: str) -> float:
+    """
+    Convierte "24h" → 1.0 (días), "48h" → 2.0, "3d" → 3.0
+    para que coincida con arrival_time (en días).
+    """
+    unit = s[-1]
+    value = int(s[:-1])
+    if unit == 'h':
+        return value / 24.0
+    elif unit == 'd':
+        return float(value)
+    else:
+        raise ValueError(f"Unidad no soportada: {s}")
+
+
 
 #Lo comentado sería para un solo agente
 def csv_export2(self, filename='data2.csv'):

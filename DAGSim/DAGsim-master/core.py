@@ -35,11 +35,11 @@ from simulation.simulation_multi_agent import Multi_Agent_Simulation
 start_time = timeit.default_timer()
 runs = 1
 
+
 for i in range(runs):
 
 #Parameters: no_of_transactions, lambda, no_of_agents, alpha, distance, tip_selection_algo
-    #simu2 = Multi_Agent_Simulation(200, 10, 2, 0.1, 1, "random",1, _printing=True)
-    simu2 = Multi_Agent_Simulation (200,1, 4,0.5, 1,"weighted",_printing=True)
+    simu2 = Multi_Agent_Simulation(92*24, 24, 200, 0.5, 1, "random", 1, _printing=True)
     simu2.setup()
     simu2.run()
     csv_export(simu2)
@@ -59,8 +59,8 @@ print("TOTAL simulation time: " + str(np.round(timeit.default_timer() - start_ti
 #print_attachment_probabilities_all_agents(simu)
 
 
-#print_graph(simu2)
-#print_tips_over_time(simu2)
-#print_tips_over_time_multiple_agents(simu2, simu2.no_of_transactions)
-#print_tips_over_time_multiple_agents_with_tangle(simu2, simu2.no_of_transactions)
-#print_attachment_probabilities_all_agents(simu2)
+print_graph(simu2)
+print_tips_over_time(simu2)
+print_tips_over_time_multiple_agents(simu2, simu2.no_of_transactions)
+print_tips_over_time_multiple_agents_with_tangle(simu2, simu2.no_of_transactions)
+print_attachment_probabilities_all_agents(simu2)

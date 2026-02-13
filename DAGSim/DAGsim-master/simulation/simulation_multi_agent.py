@@ -7,23 +7,27 @@ import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 import csv
+import argparse, sys, random
+import numpy as np
+from helpers import parse_time
 
-from simulation.helpers import update_progress, create_distance_matrix, \
+
+from helpers import update_progress, create_distance_matrix, \
 common_elements, clamp, load_file
-from simulation.plotting import print_info, print_graph, print_tips_over_time, \
+from plotting import print_info, print_graph, print_tips_over_time, \
 print_tips_over_time_multiple_agents, print_tips_over_time_multiple_agents_with_tangle, \
-print_attachment_probabilities_alone, print_attachment_probabilities_all_agents
-from simulation.agent import Agent
-from simulation.transaction import Transaction
-import csv  
+print_attachment_probabilities_alone,print_attachment_probabilities_all_agents
+from agent import Agent
+from transaction import Transaction
+import csv  # Asegúrate de que está importado en la parte superior de tu script
 
 
 class Multi_Agent_Simulation:
     def __init__(self, _no_of_transactions, _lambda, _no_of_agents, \
-                 _alpha, _distance, _tip_selection_algo, _latency=1, \
+                 _alpha, _distance, _tip_selection_algo, _latency = 1, \
                  _agent_choice=None, _printing=False):
 
-        # Use configuration file when provided
+        #Use configuration file when provided
         if(len(sys.argv) != 1):
             self.config = load_file(sys.argv[1])
             self.no_of_transactions = self.config[0][0]
@@ -35,7 +39,32 @@ class Multi_Agent_Simulation:
             self.tip_selection_algo = self.config[0][6]
             self.agent_choice = self.config[0][7]
             self.printing = self.config[0][8]
-        # Otherwise use the provided parameters
+            # --- PARSEAMOS FLAGS DE BEHAVIOR ---
+            # busco la tupla ('__BEHAVIOR__', beh)
+            beh = {}
+            for item in self.config:
+                if isinstance(item, tuple) and item[0] == '__BEHAVIOR__':
+                    beh = item[1]
+                    break
+
+            # guardo cada flag en self
+            self.p_semi        = beh.get('p_semi',        0)
+            self.semi_strategy = beh.get('semi_strategy', None)
+            self.p_mal         = beh.get('p_mal',         0)
+            self.withhold_size = beh.get('withhold_size', 0)
+            self.release_time  = beh.get('release_time',  None)
+            self.malicious_ids = beh.get('malicious_ids', [])
+            self.burst_size    = beh.get('burst_size',    0)
+            self.burst_time    = beh.get('burst_time',    None)
+
+            # seleccionar nodos maliciosos / semihonest / burst
+            num_semi    = int(self.p_semi * self.no_of_agents)
+            num_collude = int(self.p_mal  * self.no_of_agents)
+            #self.semi_nodes  = random.sample(self.agents, num_semi)
+            #self.colluders   = random.sample(self.agents, num_collude)
+            #self.burst_nodes = [a for a in self.agents if a.id in self.malicious_ids]
+            # ---------------------------------------
+            #Otherwise use the provided parameters
         else:
             self.no_of_transactions = _no_of_transactions
             self.lam = _lambda
@@ -48,11 +77,11 @@ class Multi_Agent_Simulation:
                 self.distances = _distance
             self.tip_selection_algo = _tip_selection_algo
             if _agent_choice is None:
-                _agent_choice = list(np.ones(self.no_of_agents) / self.no_of_agents)
+                _agent_choice = list(np.ones(self.no_of_agents)/self.no_of_agents)
             self.agent_choice = _agent_choice
             self.printing = _printing
 
-        # Basic parameter checks
+        #Basic parameter checks
         if (round(sum(self.agent_choice), 3) != 1.0):
             print("Agent choice not summing to 1.0: {}".format(sum(self.agent_choice)))
             sys.exit(1)
@@ -60,7 +89,7 @@ class Multi_Agent_Simulation:
             print("Agent choice not matching no_of_agents: {}".format(len(self.agent_choice)))
             sys.exit(1)
         if (self.no_of_agents == 1):
-            print("ERROR: Use a Single_Agent_Simulation()")
+            print("ERROR:  Use a Single_Agent_Simulation()")
             sys.exit()
 
         self.transactions = []
@@ -68,22 +97,34 @@ class Multi_Agent_Simulation:
         self.arrival_times = []
         self.not_visible_transactions = []
 
-        # For analysis only
+        #For analysis only
         self.record_tips = []
         self.record_attachment_probabilities = []
 
-        # For max. four agents always the same colors in prints
+        #For max. four agents always the same colors in prints
         self.agent_colors = ['#a8d6ff', '#ff9494', '#dcc0dd', '#e0ff80']
         self.agent_tip_colors = ['#f5faff', '#ffe0e0', '#f8f2f8', '#f9ffe6']
 
-        # For more than four agents random colors and lighter tip colors
-        for i in range(self.no_of_agents - 4):
-            r = lambda: random.randint(0, 255)
+        #For more than four agents random colors and lighter tip colors
+        for i in range(self.no_of_agents-4):
+            r = lambda: random.randint(0,255)
             color = '#{:02x}{:02x}{:02x}'.format(r(), r(), r())
             self.agent_colors.append(color)
             self.agent_tip_colors.append(color)
 
-
+    def _publish_transaction(self, transaction):
+        """
+        Inserta la transacción en el grafo, hace tip selection y actualiza pesos.
+        """
+        # igual que tu código actual al inicio de cada iteración:
+        tpub = transaction.published_time
+        self.DG.add_node(transaction,
+                         pos=(tpub,
+                              random.uniform(0,1) - transaction.agent.id*1.3),
+                         node_color=self.agent_colors[transaction.agent.id])
+        self.tip_selection(transaction)
+        if self.tip_selection_algo == "weighted":
+            self.update_weights_multiple_agents(transaction)
     #############################################################################
     # SIMULATION: SETUP
     #############################################################################
@@ -91,31 +132,46 @@ class Multi_Agent_Simulation:
 
     def setup(self):
 
-        # Create agents
+         #Create agents
         agent_counter = 0
         for agent in range(self.no_of_agents):
             self.agents.append(Agent(agent_counter))
             agent_counter += 1
 
-        # Create directed graph object
+        # ————————————————
+        # Asignar comportamientos adversos
+        num_semi    = int(self.p_semi * self.no_of_agents)
+        num_collude = int(self.p_mal  * self.no_of_agents)
+        self.semi_nodes  = random.sample(self.agents, num_semi)
+        self.colluders   = random.sample(self.agents, num_collude)
+        self.burst_nodes = [a for a in self.agents if a.id in self.malicious_ids]
+        # ————————————————
+
+        #Create directed graph object
         self.DG = nx.DiGraph()
 
-        # Create random arrival times
+        #Create random arrival times
         inter_arrival_times = np.random.exponential(1 / self.lam, self.no_of_transactions)
         self.arrival_times = list(np.cumsum(inter_arrival_times))
 
-        # Create genesis transaction object, store in list and add to graph object
+        #Create genesis transaction object, store in list and add to graph object
         transaction_counter = 0
         self.transactions.append(Transaction(0, transaction_counter))
         self.DG.add_node(self.transactions[0], pos=(0, 0), no=transaction_counter, node_color='#99ffff')
 
         transaction_counter += 1
 
-        # Create other transaction objects and store in list
+        #Create other transaction objects and store in list
         for i in range(len(self.arrival_times)):
             self.transactions.append(Transaction(self.arrival_times[i], transaction_counter))
             transaction_counter += 1
-
+            # ── INICIALIZAR published_time igual a arrival_time ──
+        for tx in self.transactions:
+            tx.published_time = tx.arrival_time
+        # contaremos IDs para tx “fake” del burst
+        self._next_tx_id = len(self.transactions)
+        # flag para inyectar burst sólo una vez
+        self._burst_done = False
 
     #############################################################################
     # SIMULATION: MAIN LOOP
@@ -129,46 +185,66 @@ class Multi_Agent_Simulation:
         if self.printing:
             print_info(self)
 
-        # Create dictionary with simulation parameter changes when provided
+        #Create dictionary with simulation parameter changes when provided
         if(len(sys.argv) != 1):
             dic = {x[0]: x[1:] for x in self.config[1:]}
 
-        # Start with first transaction (NOT genesis)
+        #Start with first transaction (NOT genesis)
+        buffer = []
+        # barrido de todas las transacciones salvo génesis
         for transaction in self.transactions[1:]:
-
-            # Execute simulation parameter changes when provided
-            if(len(sys.argv) != 1):
+            # aplica cambios de parámetros dinámicos si los hay
+            if len(sys.argv) != 1:
                 self.check_parameters_changes(transaction, dic)
 
-            # Do something every 100th transition
-            if (transaction.id >= 0 and
-                transaction.id % 100 == 0):
-                self.record_attachment_probabilities.append((transaction.id, self.calc_attachment_probabilities(transaction)))
-                # self.record_attachment_probabilities.append(self.calc_attachment_probabilities(transaction))
-
-            # Choose an agent
+            # elige agente
             transaction.agent = np.random.choice(self.agents, p=self.agent_choice)
 
-            # Add transaction to directed graph object (with random y coordinate for plotting the graph)
-            self.DG.add_node(transaction, pos=(transaction.arrival_time, \
-                random.uniform(0, 1) - transaction.agent.id * 1.3), \
-                node_color=self.agent_colors[transaction.agent.id])
+            # si es colluder, retenla en buffer
+            if transaction.agent in self.colluders:
+                buffer.append(transaction)
+                # condiciones de liberación: tamaño de cola o tiempo
+                cond1 = len(buffer) >= self.withhold_size
+                # conviertes release_time de string "24h" a segundos o tocas aquí
+                cond2 = transaction.arrival_time >= parse_time(self.release_time)
+                if cond1 or cond2:
+                    for w in buffer:
+                        # actualizar published_time antes de meterlo al grafo
+                        w.published_time = max(w.arrival_time, parse_time(self.release_time))
+                        self._publish_transaction(w)
+                    buffer.clear()
+                # saltamos el resto (no publicamos ahora)
+                continue
+            
+                        # —————— INYECCIÓN DE BURST ——————
+            # en el momento burst_time, y sólo una vez
+            if (not self._burst_done
+                and transaction.arrival_time >= parse_time(self.burst_time)):
+                self._burst_done = True
+                # creamos burst_size transacciones extra
+                for _ in range(self.burst_size):
+                    fake = Transaction(parse_time(self.burst_time),
+                                       self._next_tx_id)
+                    self._next_tx_id += 1
+                    # forzamos que salga del mismo nodo malicioso
+                    fake.agent = self.burst_nodes[0]
+                    # publicamos en t = burst_time
+                    fake.published_time = parse_time(self.burst_time)
+                    self._publish_transaction(fake)
+            # ————————————————————————————————
 
-            # Select tips
-            self.tip_selection(transaction)
+            # para honestos y semihonestos publicamos de inmediato
+            self._publish_transaction(transaction)
 
-            # Update weights (of transactions referenced by the current transaction)
-            if(self.tip_selection_algo == "weighted"):
-                self.update_weights_multiple_agents(transaction)
-
-            # Progress bar update
-            if self.printing:
-                update_progress(transaction.id / self.no_of_transactions, transaction)
+        # Publica cualquier colluder que quede en el buffer
+        for w in buffer:
+            self._publish_transaction(w)
+        buffer.clear()
 
         if self.printing:
             print("Simulation time: " + str(np.round(timeit.default_timer() - start_time, 3)) + " seconds\n")
 
-        # For measuring partitioning
+        #For measuring partitioning
         start_time2 = timeit.default_timer()
         # self.calc_exit_probabilities_multiple_agents(transaction)
         # self.calc_attachment_probabilities(transaction)
@@ -180,8 +256,21 @@ class Multi_Agent_Simulation:
 
 
     def tip_selection(self, transaction):
-        tip_selection_start_time = timeit.default_timer()  # Start timing for tip selection
+        tip_selection_start_time = timeit.default_timer()  # Inicia el contador de tiempo para seleccionar puntas
 
+        # —— Escenario 1: tip-bias semihonest —— 
+        if transaction.agent in self.semi_nodes and self.semi_strategy == "selfTipFirst":
+            # obtenemos las puntas válidas para este agente
+            valid = self.get_valid_tips_multiple_agents(transaction.agent)
+            # filtramos solo las que él mismo emitió
+            own   = [t for t in valid if t.agent == transaction.agent]
+            # si tiene al menos dos, aprueba siempre sus propias tips
+            if len(own) >= 2:
+                tip1, tip2 = random.sample(own, 2)
+                self.DG.add_edge(transaction, tip1)
+                self.DG.add_edge(transaction, tip2)
+                return
+        # ————————————————————————————————
         if(self.tip_selection_algo == "random"):
             self.random_selection(transaction)
         elif (self.tip_selection_algo == "unweighted"):
@@ -192,31 +281,21 @@ class Multi_Agent_Simulation:
             print("ERROR: Valid tip selection algorithms are 'random', 'weighted', 'unweighted'")
             sys.exit()
 
-        tip_selection_end_time = timeit.default_timer()  # End timing for tip selection
+        tip_selection_end_time = timeit.default_timer()  # Finaliza el contador de tiempo para seleccionar puntas
         selection_duration = tip_selection_end_time - tip_selection_start_time
-        print(f"Time to select tips for transaction {transaction.id}: {selection_duration} seconds")
+        
 
-        # Save to CSV
-        with open('tip_selection_times.csv', mode='a', newline='') as file:
-            writer = csv.writer(file)
-            # Add more details to the row
-            writer.writerow([
-                transaction.id,
-                transaction.arrival_time,
-                selection_duration,
-                transaction.agent.id if transaction.agent else 'N/A',  # Add agent ID if available
-                list(self.DG.predecessors(transaction)),  # Transactions this transaction confirms
-                list(self.DG.successors(transaction))  # Transactions that confirm this transaction
-            ])
+
+
 
     def check_parameters_changes(self, transaction, parameters):
 
-        # If change event for a transaction is provided
+        #If change event for a transaction is provided
         if transaction.id in parameters:
-            # If change of distance is provided
+            #If change of distance is provided
             if parameters[transaction.id][0] != False:
                 self.distances = parameters[transaction.id][0]
-            # If change of agent probabilities is provided
+            #If change of agent probabilities is provided
             if parameters[transaction.id][1] != False:
                 self.agent_choice = parameters[transaction.id][1]
 
@@ -238,32 +317,32 @@ class Multi_Agent_Simulation:
 
     def get_visible_transactions(self, incoming_transaction_time, incoming_transaction_agent):
 
-        # Initialize empty lists (for each transaction these are populated again)
+        #Initialize empty lists (for each transaction these are populated again)
         self.not_visible_transactions = []
         for agent in self.agents:
             agent.visible_transactions = []
 
-        # Loop through all transactions in DAG
+        #Loop through all transactions in DAG
         for transaction in self.DG.nodes:
 
-            # For EACH agent record the currently visible and not visible transactions
+            #For EACH agent record the currently visible and not visible transactions
             for agent in self.agents:
 
-                # Genesis always visible
+                #Genesis always visible
                 if (transaction.arrival_time == 0):
 
                     agent.visible_transactions.append(transaction)
 
                 else:
-                    # Get distance from agent to agent of transaction from distance matrix
+                    #Get distance from agent to agent of transaction from distance matrix
                     distance = self.distances[agent.id][transaction.agent.id]
 
-                    # Determine if the transaction is visible (incoming_transaction.arrival_time determines current time)
+                    #Determine if the transaction is visible (incoming_transaction.arrival_time determines current time)
                     if (transaction.arrival_time + self.latency + distance <= incoming_transaction_time):
 
                         agent.visible_transactions.append(transaction)
 
-                    # Record not visible transactions for 'current agent' only (reduces overhead)
+                    #Record not visible transactions for 'current agent' only (reduces overhead)
                     elif(incoming_transaction_agent == agent):
                         self.not_visible_transactions.append(transaction)
 
@@ -274,12 +353,12 @@ class Multi_Agent_Simulation:
 
         for transaction in agent.visible_transactions:
 
-            # Add to valid tips if transaction has no approvers at all
+            #Add to valid tips if transaction has no approvers at all
             if(len(list(self.DG.predecessors(transaction))) == 0):
 
                 valid_tips.append(transaction)
 
-            # Add to valid tips if all approvers not visible yet
+            #Add to valid tips if all approvers not visible yet
             elif(self.all_approvers_not_visible(transaction)):
 
                 valid_tips.append(transaction)
@@ -311,20 +390,20 @@ class Multi_Agent_Simulation:
 
     def random_selection(self, transaction):
 
-        # Needed for plotting number of tips over time for ALL agents
+        #Needed for plotting number of tips over time for ALL agents
         for agent in self.agents:
             if(agent != transaction.agent):
                 self.get_visible_transactions(transaction.arrival_time, agent)
                 valid_tips = self.get_valid_tips_multiple_agents(agent)
                 agent.record_tips.append(valid_tips)
 
-        # Get visible transactions and valid tips (and record these)
+        #Get visible transactions and valid tips (and record these)
         self.get_visible_transactions(transaction.arrival_time, transaction.agent)
         valid_tips = self.get_valid_tips_multiple_agents(transaction.agent)
         transaction.agent.record_tips.append(valid_tips)
         self.record_tips.append(valid_tips)
 
-        # Reference two random valid tips
+        #Reference two random valid tips
         tip1 = np.random.choice(valid_tips)
         tip2 = np.random.choice(valid_tips)
 
@@ -340,35 +419,36 @@ class Multi_Agent_Simulation:
 
     def unweighted_MCMC(self, transaction):
 
-        # Needed for plotting number of tips over time for ALL agents
+        #Needed for plotting number of tips over time for ALL agents
         for agent in self.agents:
             if(agent != transaction.agent):
                 self.get_visible_transactions(transaction.arrival_time, agent)
                 valid_tips = self.get_valid_tips_multiple_agents(agent)
                 agent.record_tips.append(valid_tips)
 
-        # Get visible transactions and valid tips (and record these)
+        #Get visible transactions and valid tips (and record these)
         self.get_visible_transactions(transaction.arrival_time, transaction.agent)
         valid_tips = self.get_valid_tips_multiple_agents(transaction.agent)
         transaction.agent.record_tips.append(valid_tips)
         self.record_tips.append(valid_tips)
 
-        # Walk to two tips
+        #Walk to two tips
         tip1 = self.unweighted_random_walk(transaction, valid_tips)
         tip2 = self.unweighted_random_walk(transaction, valid_tips)
 
-        # Add tips to graph (only once)
-        self.DG.add_edge(transaction, tip1)
+        #Add tips to graph (only once)
+        self.DG.add_edge(transaction,tip1)
         if(tip1 != tip2):
-            self.DG.add_edge(transaction, tip2)
+            self.DG.add_edge(transaction,tip2)
 
+    
 
     def unweighted_random_walk(self, transaction, valid_tips):
 
-        # Start walk at genesis
+        #Start walk at genesis
         walker_on = self.transactions[0]
 
-        # If only genesis a valid tip, approve genesis
+        #If only genesis a valid tip, approve genesis
         if (valid_tips == [walker_on]):
             return walker_on
 
@@ -389,24 +469,24 @@ class Multi_Agent_Simulation:
 
     def weighted_MCMC(self, transaction):
 
-        # Needed for plotting number of tips over time for ALL agents
+        #Needed for plotting number of tips over time for ALL agents
         for agent in self.agents:
             if(agent != transaction.agent):
                 self.get_visible_transactions(transaction.arrival_time, agent)
                 valid_tips = self.get_valid_tips_multiple_agents(agent)
                 agent.record_tips.append(valid_tips)
 
-        # Get visible transactions and valid tips (and record these)
+        #Get visible transactions and valid tips (and record these)
         self.get_visible_transactions(transaction.arrival_time, transaction.agent)
         valid_tips = self.get_valid_tips_multiple_agents(transaction.agent)
         transaction.agent.record_tips.append(valid_tips)
         self.record_tips.append(valid_tips)
 
-        # Walk to two tips
+        #Walk to two tips
         tip1 = self.weighted_random_walk(transaction, valid_tips)
         tip2 = self.weighted_random_walk(transaction, valid_tips)
 
-        # Add tips to graph (only once)
+        #Add tips to graph (only once)
         self.DG.add_edge(transaction, tip1)
         if (tip1 != tip2):
             self.DG.add_edge(transaction, tip2)
@@ -414,10 +494,10 @@ class Multi_Agent_Simulation:
 
     def weighted_random_walk(self, transaction, valid_tips):
 
-        # Start walk at genesis
+        #Start walk at genesis
         walker_on = self.transactions[0]
 
-        # If only genesis a valid tip, approve genesis
+        #If only genesis a valid tip, approve genesis
         if (valid_tips == [walker_on]):
             return walker_on
 
@@ -427,7 +507,7 @@ class Multi_Agent_Simulation:
             visible_approvers = common_elements(approvers, transaction.agent.visible_transactions)
             transition_probabilities = self.calc_transition_probabilities_multiple_agents(visible_approvers, transaction.agent)
 
-            # Choose with transition probabilities
+            #Choose with transition probabilities
             walker_on = np.random.choice(visible_approvers, p=transition_probabilities)
 
         return walker_on
@@ -440,10 +520,10 @@ class Multi_Agent_Simulation:
 
     def update_weights_multiple_agents(self, incoming_transaction):
 
-        # Update all descendants of incoming_transaction only (cum_weight += 1)
+        #Update all descendants of incoming_transaction only (cum_weight += 1)
         for transaction in nx.descendants(self.DG, incoming_transaction):
 
-            # Update for each agent separately
+            #Update for each agent separately
             for agent in self.agents:
                 if(transaction in agent.visible_transactions):
                     transaction.cum_weight_multiple_agents[agent] += 1
@@ -453,33 +533,33 @@ class Multi_Agent_Simulation:
 
         for agent in self.agents:
 
-            # Reset exit probability of all transactions to 0%, just needed when run multiple times throughout simulation
+            #Reset exit probability of all transactions to 0%, just needed when run multiple times throughout simulation
             for transaction in self.DG.nodes:
                 transaction.exit_probability_multiple_agents[agent] = 0
 
-            # Set genesis to 100%
+            #Set genesis to 100%
             self.transactions[0].exit_probability_multiple_agents[agent] = 1
 
-            # Determine visible transaction for t + 1, so that all transactions (h = 1) are included
+            #Determine visible transaction for t + 1, so that all transactions (h = 1) are included
             self.get_visible_transactions(incoming_transaction.arrival_time + self.latency, agent)
 
-        # Start at genesis, tips in the end
+        #Start at genesis, tips in the end
         sorted = list(reversed(list(nx.topological_sort(self.DG))))
 
-        # Calculate exit probabilities
+        #Calculate exit probabilities
         for transaction in sorted:
 
             for agent in self.agents:
 
                 if (transaction in agent.visible_transactions):
 
-                    # Get visible direct approvers and transition probabilities to walk to them
+                    #Get visible direct approvers and transition probabilities to walk to them
                     approvers = list(self.DG.predecessors(transaction))
                     visible_approvers = common_elements(approvers, agent.visible_transactions)
                     transition_probabilities = self.calc_transition_probabilities_multiple_agents(visible_approvers, agent)
 
-                    # For every visible direct approver update the exit probability by adding the exit probability
-                    # of the current transaction times the transition probability of walking to the approver
+                    #For every visible direct approver update the exit probability by adding the exit probability
+                    #of the current transaction times the transition probabilitiy of walking to the approver
                     for (approver, transition_probability) in zip(visible_approvers, transition_probabilities):
                         approver.exit_probability_multiple_agents[agent] += (
                                     transaction.exit_probability_multiple_agents[agent] * transition_probability)
@@ -487,28 +567,28 @@ class Multi_Agent_Simulation:
 
     def calc_confirmation_confidence_multiple_agents(self, incoming_transaction):
 
-        # Loop over agents and get visible transactions and valid tips
+        #Loop over agents and get visible transactions and valid tips
         for agent in self.agents:
             self.get_visible_transactions(incoming_transaction.arrival_time + self.latency, agent)
             agent.tips = self.get_valid_tips_multiple_agents(agent)
 
-            # Loop over visible transactions
+            #Loop over visible transactions
             for transaction in agent.visible_transactions:
-                # Reset confirmation confidence to 0%, just needed when function called multiple times during simulation
+                #Reset confirmation confidence to 0%, just needed when function called multiple times during simulation
                 # transaction.confirmation_confidence_multiple_agents[agent] = 0
 
-                # Loop over valid tips
+                #Loop over valid tips
                 for tip in agent.tips:
 
-                    if(nx.has_path(self.DG, tip, transaction) and tip != transaction):
+                    if(nx.has_path(self.DG,tip,transaction) and tip != transaction):
 
                         transaction.confirmation_confidence_multiple_agents[agent] += tip.exit_probability_multiple_agents[agent]
 
-                    # Tips have 0 confirmation confidence by default
+                    #Tips have 0 confirmation confidence by default
                     tip.confirmation_confidence_multiple_agents[agent] = 0
 
 
-    # Uses exit probabilities to calculate attachment probabilities
+    #Uses exit probabilities to caluclate attachment probabilities
     def calc_attachment_probabilities(self, incoming_transaction):
 
         attachment_probabilities_without_main = []
@@ -529,16 +609,16 @@ class Multi_Agent_Simulation:
                 if(other_agent != agent):
                     sum_ += sum(tip.exit_probability_multiple_agents[other_agent] for tip in other_agent.tips if tip.agent == agent)
 
-            attachment_probabilities_all.append(sum_ / self.no_of_agents)
+            attachment_probabilities_all.append(sum_/self.no_of_agents)
 
             if(agent != self.agents[0]):
-                attachment_probabilities_without_main.append(sum_ / self.no_of_agents)
+                attachment_probabilities_without_main.append(sum_/self.no_of_agents)
 
         # print(attachment_probabilities_without_main)
         # print(attachment_probabilities_all)
         return attachment_probabilities_all
 
-    # Performs 100 random walks per agent to calculate attachment probabilities
+    #Performs 100 random walks per agent to caluclate attachment probabilities
     def attachment_probabilities_2(self, incoming_transaction):
 
         self.calc_exit_probabilities_multiple_agents(incoming_transaction)
@@ -547,7 +627,7 @@ class Multi_Agent_Simulation:
 
         for agent in self.agents:
 
-            # Get visible transactions and valid tips (and record these)
+            #Get visible transactions and valid tips (and record these)
             self.get_visible_transactions(incoming_transaction.arrival_time + self.latency, agent)
             valid_tips = self.get_valid_tips_multiple_agents(agent)
 
@@ -560,3 +640,61 @@ class Multi_Agent_Simulation:
         perc = [(i, c[i] / len(all_tips) * 100.0) for i in c]
 
         return perc
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-c", "--config", required=True, help="INI config file")
+    parser.add_argument("-s", "--seed",   type=int, required=True)
+    args = parser.parse_args()
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    # forzar que load_file cargue args.config
+    sys.argv = [sys.argv[0], args.config]
+
+    simu = Multi_Agent_Simulation(
+        _no_of_transactions=None, _lambda=None,
+        _no_of_agents=None, _alpha=None,
+        _distance=None, _tip_selection_algo=None,
+        _printing=False
+    )
+    simu.setup()
+    simu.run()
+
+    # 1) Crea carpeta
+    import os
+    os.makedirs("logs", exist_ok=True)
+
+    # 2) Nombre del CSV de salida
+    out = f"logs/{os.path.basename(args.config).replace('.ini','')}_{args.seed}.csv"
+
+    with open(out, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['conf_time', 'orphan_flag', 'approver_id'])
+        for tx in simu.transactions[1:]:
+            # 1) recupera los aprobadores reales (predecessors)
+            try:
+                confs = list(simu.DG.predecessors(tx))
+            except KeyError:
+                confs = []
+
+            if confs:
+                # 2) buscamos cuál de esos aprobadores fue el primero en publicarse
+                first = min(confs, key=lambda s: getattr(s, 'published_time', float('inf')))
+
+                if first and getattr(first, 'agent', None) is not None:
+                    conf_time   = first.published_time - tx.published_time
+                    orphan_flag = 0
+                    approver_id = first.agent.id
+                else:
+                    conf_time   = None
+                    orphan_flag = 1
+                    approver_id = None
+            else:
+                conf_time   = None
+                orphan_flag = 1
+                approver_id = None
+
+            writer.writerow([conf_time, orphan_flag, approver_id])
+
